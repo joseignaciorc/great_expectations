@@ -1,0 +1,77 @@
+name: Test installation of GE in directories and inside zip files (PEP 273)
+
+on:
+  - push
+
+jobs:
+  run:
+    name: '[${{matrix.type}}, ${{matrix.os}}]'
+    runs-on: '${{ matrix.os }}'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-20.04
+            pythonpath: /opt/hostedtoolcache/Python/3.8.12/x64/lib/python3.8/site-packages:extra_libraries_dir
+            type: directory
+
+          - os: ubuntu-20.04
+            pythonpath: '/opt/hostedtoolcache/Python/3.8.12/x64/lib/python3.8/site-packages:extra_libraries.zip'
+            type: zip
+
+          - os: windows-2019
+            pythonpath: 'C:\\hostedtoolcache\\windows\\Python\\3.8.10\\x64\\lib\\site-packages;extra_libraries_dir'
+            type: directory
+
+          - os: windows-2019
+            pythonpath: 'C:\\hostedtoolcache\\windows\\Python\\3.8.10\\x64\\lib\\site-packages;extra_libraries.zip'
+            type: zip
+
+
+      fail-fast: false
+
+    steps:
+      - name: Support longpaths
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
+      - uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+
+      - name: Setup base system
+        run: |
+          pip install --upgrade wheel setuptools
+          pip install -r requirements.txt
+
+      - name: Install GE from sources into extra_libraries_dir
+        run: |
+          pip install . -t extra_libraries_dir
+
+      - name: Remove sources
+        shell: bash
+        run: |
+          rm -r ./great_expectations
+
+      - name: Generate extra_libraries.zip (Win)
+        if: |
+          runner.os == 'Windows' &&
+          matrix.type == 'zip'
+        run: |
+          Compress-Archive -Path extra_libraries_dir\* -DestinationPath extra_libraries.zip
+
+      - name: Generate extra_libraries.zip (Linux)
+        if: |
+          runner.os == 'Linux' &&
+          matrix.type == 'zip'
+        run: |
+          sudo apt-get install zip
+          (cd extra_libraries_dir && zip --quiet -r ../extra_libraries.zip ./)
+
+      - name: Run a Great Expectations script, when the GE library is installed in a ${{matrix.type}}
+        env:
+          PYTHONPATH: ${{matrix.pythonpath}}
+        run: |
+          python ./tests/integration/common_workflows/simple_build_data_docs.py

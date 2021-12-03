@@ -1,7 +1,10 @@
 import inspect
 import logging
 import os
+import re
+import tempfile
 from mimetypes import guess_type
+from zipfile import ZipFile, is_zipfile
 
 from great_expectations.data_context.types.resource_identifiers import (
     ExpectationSuiteIdentifier,
@@ -385,6 +388,33 @@ class HtmlSiteStore:
             static_assets_source_dir = file_relative_path(
                 __file__, os.path.join("..", "..", "render", "view", "static")
             )
+
+        # If `static_assets_source_absdir` contains the string ".zip/" (unix) or ".zip\" (win)
+        # then we check if Great Expectations has been installed inside a zip file (see PEP 273)
+        # If so, we need to extract all the static files and run this funcion again
+        static_assets_source_absdir = os.path.abspath(static_assets_source_dir)
+        zip_re = re.match(
+            f"(.+[.]zip){os.sep}(.+)",
+            static_assets_source_absdir,
+            flags=re.IGNORECASE,
+        )
+
+        if zip_re:
+            zip_filename = zip_re.groups()[0]  # e.g /abcd/xyzt.zip
+            path_in_zip = zip_re.groups()[
+                1
+            ]  # e.g. great_expectations/render/view/static
+            unzip_destination = tempfile.mkdtemp()
+
+            if is_zipfile(zip_filename):
+                with ZipFile(zip_filename) as zipfile:
+                    static_files_to_extract = [
+                        file
+                        for file in zipfile.namelist()
+                        if file.startswith(path_in_zip)
+                    ]
+                    zipfile.extractall(unzip_destination, static_files_to_extract)
+                return self.copy_static_assets(unzip_destination)
 
         for item in os.listdir(static_assets_source_dir):
             # Directory
